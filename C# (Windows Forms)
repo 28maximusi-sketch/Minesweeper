@@ -1,0 +1,181 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+public class MinesweeperForm : Form
+{
+    private const int ROWS = 9, COLS = 9, MINES = 10;
+    private Button[,] buttons;
+    private int[,] grid;
+    private bool[,] revealed;
+    private bool[,] flagged;
+    private bool gameOver = false;
+    private bool firstClick = true;
+    private Timer timer;
+    private int elapsed = 0;
+    private Label timerLabel, mineLabel;
+    private Random rand = new Random();
+
+    public MinesweeperForm()
+    {
+        this.Text = "Minesweeper - C#";
+        this.ClientSize = new Size(COLS*35, ROWS*35+60);
+        InitializeUI();
+        NewGame();
+    }
+
+    private void InitializeUI()
+    {
+        timerLabel = new Label { Text = "⏱️ 0", Location = new Point(10, ROWS*35+5), AutoSize = true };
+        mineLabel = new Label { Text = $"💣 {MINES}", Location = new Point(COLS*35-80, ROWS*35+5), AutoSize = true };
+        this.Controls.Add(timerLabel);
+        this.Controls.Add(mineLabel);
+        buttons = new Button[ROWS, COLS];
+        for (int r=0; r<ROWS; r++)
+            for (int c=0; c<COLS; c++)
+            {
+                var btn = new Button { Width=32, Height=32, Location=new Point(c*32, r*32), Tag=new Point(r,c) };
+                btn.MouseDown += OnClick;
+                this.Controls.Add(btn);
+                buttons[r,c] = btn;
+            }
+        timer = new Timer { Interval=1000 };
+        timer.Tick += (s,e) => { if(!gameOver && !firstClick) { elapsed++; timerLabel.Text = $"⏱️ {elapsed}"; } };
+    }
+
+    private void NewGame()
+    {
+        gameOver = false; firstClick = true; elapsed = 0;
+        timerLabel.Text = "⏱️ 0";
+        mineLabel.Text = $"💣 {MINES}";
+        timer.Stop();
+        grid = new int[ROWS, COLS];
+        revealed = new bool[ROWS, COLS];
+        flagged = new bool[ROWS, COLS];
+        for (int r=0; r<ROWS; r++)
+            for (int c=0; c<COLS; c++)
+            {
+                buttons[r,c].Text = "";
+                buttons[r,c].BackColor = SystemColors.Control;
+                buttons[r,c].Enabled = true;
+            }
+    }
+
+    private void GenerateMines(int firstR, int firstC)
+    {
+        // безопасные клетки
+        bool[,] safe = new bool[ROWS, COLS];
+        for (int dr=-1; dr<=1; dr++)
+            for (int dc=-1; dc<=1; dc++)
+            {
+                int nr=firstR+dr, nc=firstC+dc;
+                if (nr>=0 && nr<ROWS && nc>=0 && nc<COLS) safe[nr,nc]=true;
+            }
+        safe[firstR,firstC]=true;
+        int minesPlaced=0;
+        while(minesPlaced<MINES)
+        {
+            int r=rand.Next(ROWS), c=rand.Next(COLS);
+            if(!safe[r,c] && grid[r,c]!=-1)
+            {
+                grid[r,c] = -1;
+                minesPlaced++;
+            }
+        }
+        for (int r=0; r<ROWS; r++)
+            for (int c=0; c<COLS; c++)
+                if(grid[r,c]!=-1)
+                {
+                    int cnt=0;
+                    for(int dr=-1; dr<=1; dr++)
+                        for(int dc=-1; dc<=1; dc++)
+                        {
+                            int nr=r+dr, nc=c+dc;
+                            if(nr>=0 && nr<ROWS && nc>=0 && nc<COLS && grid[nr,nc]==-1) cnt++;
+                        }
+                    grid[r,c]=cnt;
+                }
+    }
+
+    private void Reveal(int r, int c)
+    {
+        if(r<0 || r>=ROWS || c<0 || c>=COLS) return;
+        if(revealed[r,c] || flagged[r,c]) return;
+        revealed[r,c]=true;
+        buttons[r,c].Enabled = false;
+        if(grid[r,c]==-1)
+        {
+            buttons[r,c].Text = "💣";
+            buttons[r,c].BackColor = Color.Red;
+            gameOver=true;
+            timer.Stop();
+            MessageBox.Show("Game Over!");
+            return;
+        }
+        if(grid[r,c]==0)
+        {
+            buttons[r,c].Text = "";
+            buttons[r,c].BackColor = Color.LightGray;
+            for(int dr=-1; dr<=1; dr++)
+                for(int dc=-1; dc<=1; dc++)
+                    if(dr!=0 || dc!=0)
+                        Reveal(r+dr, c+dc);
+        }
+        else
+        {
+            buttons[r,c].Text = grid[r,c].ToString();
+            buttons[r,c].BackColor = Color.LightGray;
+        }
+        CheckWin();
+    }
+
+    private void CheckWin()
+    {
+        int revealedCount=0;
+        for(int r=0;r<ROWS;r++) for(int c=0;c<COLS;c++) if(revealed[r,c]) revealedCount++;
+        if(revealedCount == ROWS*COLS - MINES)
+        {
+            gameOver=true;
+            timer.Stop();
+            MessageBox.Show($"You win! Time: {elapsed} sec");
+        }
+    }
+
+    private void OnClick(object sender, MouseEventArgs e)
+    {
+        if(gameOver) return;
+        var btn = (Button)sender;
+        var p = (Point)btn.Tag;
+        int r=p.X, c=p.Y;
+        if(e.Button == MouseButtons.Left)
+        {
+            if(firstClick)
+            {
+                GenerateMines(r,c);
+                firstClick=false;
+                timer.Start();
+            }
+            if(!flagged[r,c] && !revealed[r,c])
+                Reveal(r,c);
+        }
+        else if(e.Button == MouseButtons.Right)
+        {
+            if(!revealed[r,c])
+            {
+                flagged[r,c] = !flagged[r,c];
+                btn.Text = flagged[r,c] ? "🚩" : "";
+                UpdateMineCounter();
+            }
+        }
+    }
+
+    private void UpdateMineCounter()
+    {
+        int flaggedCount=0;
+        foreach(bool f in flagged) if(f) flaggedCount++;
+        mineLabel.Text = $"💣 {MINES - flaggedCount}";
+    }
+
+    [STAThread]
+    static void Main() { Application.Run(new MinesweeperForm()); }
+}
