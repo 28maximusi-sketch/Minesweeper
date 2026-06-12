@@ -1,0 +1,215 @@
+package main
+
+import (
+    "image/color"
+    "log"
+    "math/rand"
+    "time"
+    "github.com/hajimehoshi/ebiten/v2"
+    "github.com/hajimehoshi/ebiten/v2/inpututil"
+)
+
+const (
+    cellSize = 30
+    rows     = 9
+    cols     = 9
+    mines    = 10
+)
+
+type Game struct {
+    grid        [rows][cols]int // -1 mine, >=0 number
+    revealed    [rows][cols]bool
+    flagged     [rows][cols]bool
+    gameOver    bool
+    firstClick  bool
+    startTime   time.Time
+    timerRunning bool
+    win         bool
+}
+
+func NewGame() *Game {
+    g := &Game{firstClick: true}
+    g.reset()
+    return g
+}
+
+func (g *Game) reset() {
+    for i := 0; i < rows; i++ {
+        for j := 0; j < cols; j++ {
+            g.grid[i][j] = 0
+            g.revealed[i][j] = false
+            g.flagged[i][j] = false
+        }
+    }
+    g.gameOver = false
+    g.win = false
+    g.firstClick = true
+    g.timerRunning = false
+}
+
+func (g *Game) generateMines(firstR, firstC int) {
+    // исключаем первую клетку и соседей
+    safe := make(map[[2]int]bool)
+    for dr := -1; dr <= 1; dr++ {
+        for dc := -1; dc <= 1; dc++ {
+            nr, nc := firstR+dr, firstC+dc
+            if nr >= 0 && nr < rows && nc >= 0 && nc < cols {
+                safe[[2]int{nr, nc}] = true
+            }
+        }
+    }
+    safe[[2]int{firstR, firstC}] = true
+    var positions [][2]int
+    for r := 0; r < rows; r++ {
+        for c := 0; c < cols; c++ {
+            if !safe[[2]int{r, c}] {
+                positions = append(positions, [2]int{r, c})
+            }
+        }
+    }
+    rand.Shuffle(len(positions), func(i, j int) { positions[i], positions[j] = positions[j], positions[i] })
+    for i := 0; i < mines && i < len(positions); i++ {
+        r, c := positions[i][0], positions[i][1]
+        g.grid[r][c] = -1
+    }
+    // заполняем числа
+    for r := 0; r < rows; r++ {
+        for c := 0; c < cols; c++ {
+            if g.grid[r][c] == -1 {
+                continue
+            }
+            cnt := 0
+            for dr := -1; dr <= 1; dr++ {
+                for dc := -1; dc <= 1; dc++ {
+                    nr, nc := r+dr, c+dc
+                    if nr >= 0 && nr < rows && nc >= 0 && nc < cols && g.grid[nr][nc] == -1 {
+                        cnt++
+                    }
+                }
+            }
+            g.grid[r][c] = cnt
+        }
+    }
+}
+
+func (g *Game) reveal(r, c int) {
+    if r < 0 || r >= rows || c < 0 || c >= cols {
+        return
+    }
+    if g.revealed[r][c] || g.flagged[r][c] {
+        return
+    }
+    g.revealed[r][c] = true
+    if g.grid[r][c] == -1 {
+        g.gameOver = true
+        return
+    }
+    if g.grid[r][c] == 0 {
+        for dr := -1; dr <= 1; dr++ {
+            for dc := -1; dc <= 1; dc++ {
+                if dr == 0 && dc == 0 {
+                    continue
+                }
+                g.reveal(r+dr, c+dc)
+            }
+        }
+    }
+    g.checkWin()
+}
+
+func (g *Game) checkWin() {
+    revealedCount := 0
+    for r := 0; r < rows; r++ {
+        for c := 0; c < cols; c++ {
+            if g.revealed[r][c] {
+                revealedCount++
+            }
+        }
+    }
+    if revealedCount == rows*cols-mines {
+        g.win = true
+        g.gameOver = true
+    }
+}
+
+func (g *Game) Update() error {
+    if g.gameOver {
+        if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+            g.reset()
+        }
+        return nil
+    }
+    mx, my := ebiten.CursorPosition()
+    cx, cy := mx/cellSize, my/cellSize
+    if cx >= 0 && cx < cols && cy >= 0 && cy < rows {
+        if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+            if g.firstClick {
+                g.generateMines(cy, cx)
+                g.firstClick = false
+                g.startTime = time.Now()
+                g.timerRunning = true
+            }
+            if !g.flagged[cy][cx] && !g.revealed[cy][cx] {
+                g.reveal(cy, cx)
+            }
+        }
+        if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
+            if !g.revealed[cy][cx] {
+                g.flagged[cy][cx] = !g.flagged[cy][cx]
+            }
+        }
+    }
+    return nil
+}
+
+func (g *Game) Draw(screen *ebiten.Image) {
+    for r := 0; r < rows; r++ {
+        for c := 0; c < cols; c++ {
+            x, y := c*cellSize, r*cellSize
+            if g.revealed[r][c] {
+                if g.grid[r][c] == -1 {
+                    ebitenutil.DrawRect(screen, float64(x), float64(y), cellSize-1, cellSize-1, color.RGBA{255,0,0,255})
+                } else {
+                    ebitenutil.DrawRect(screen, float64(x), float64(y), cellSize-1, cellSize-1, color.RGBA{200,200,200,255})
+                    if g.grid[r][c] > 0 {
+                        ebitenutil.DebugPrintAt(screen, formatInt(g.grid[r][c]), x+10, y+8)
+                    }
+                }
+            } else {
+                col := color.RGBA{100,100,100,255}
+                if g.flagged[r][c] {
+                    ebitenutil.DebugPrintAt(screen, "F", x+10, y+8)
+                }
+                ebitenutil.DrawRect(screen, float64(x), float64(y), cellSize-1, cellSize-1, col)
+            }
+        }
+    }
+    if g.gameOver {
+        msg := "GAME OVER"
+        if g.win {
+            msg = "YOU WIN!"
+        }
+        ebitenutil.DebugPrintAt(screen, msg, 100, 300)
+    }
+    if g.timerRunning && !g.gameOver {
+        elapsed := time.Since(g.startTime).Seconds()
+        ebitenutil.DebugPrintAt(screen, formatInt(int(elapsed)), 10, 10)
+    }
+}
+
+func formatInt(n int) string {
+    return string(rune(n + '0')) // упрощённо
+}
+
+func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
+    return cols*cellSize, rows*cellSize + 50
+}
+
+func main() {
+    rand.Seed(time.Now().UnixNano())
+    ebiten.SetWindowSize(cols*cellSize, rows*cellSize+50)
+    ebiten.SetWindowTitle("Minesweeper - Go")
+    if err := ebiten.RunGame(NewGame()); err != nil {
+        log.Fatal(err)
+    }
+}
