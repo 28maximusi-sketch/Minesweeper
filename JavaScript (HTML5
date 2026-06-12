@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html>
+<head><title>Minesweeper - JS</title><style>canvas{border:1px solid #000;}</style></head>
+<body>
+<canvas id="canvas" width="300" height="300"></canvas>
+<div>💣 <span id="mineCount">10</span> ⏱️ <span id="timer">0</span></div>
+<script src="minesweeper.js"></script>
+</body>
+</html>
