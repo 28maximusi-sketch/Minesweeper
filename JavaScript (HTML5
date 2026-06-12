@@ -7,3 +7,143 @@
 <script src="minesweeper.js"></script>
 </body>
 </html>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const ROWS=9, COLS=9, MINES=10;
+const CELL=30;
+let grid = Array(ROWS).fill().map(()=>Array(COLS).fill(0));
+let revealed = Array(ROWS).fill().map(()=>Array(COLS).fill(false));
+let flagged = Array(ROWS).fill().map(()=>Array(COLS).fill(false));
+let gameOver=false, win=false, firstClick=true;
+let startTime=null, timerInterval=null;
+let remainingMines=MINES;
+
+function formatTime(sec){ return Math.floor(sec/60)+':'+(sec%60).toString().padStart(2,'0'); }
+
+function generateMines(firstR, firstC){
+    let safe = Array(ROWS).fill().map(()=>Array(COLS).fill(false));
+    for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+        let nr=firstR+dr, nc=firstC+dc;
+        if(nr>=0 && nr<ROWS && nc>=0 && nc<COLS) safe[nr][nc]=true;
+    }
+    safe[firstR][firstC]=true;
+    let minesPlaced=0;
+    while(minesPlaced<MINES){
+        let r=Math.floor(Math.random()*ROWS), c=Math.floor(Math.random()*COLS);
+        if(!safe[r][c] && grid[r][c]!==-1){
+            grid[r][c]=-1;
+            minesPlaced++;
+        }
+    }
+    for(let r=0;r<ROWS;r++)
+        for(let c=0;c<COLS;c++)
+            if(grid[r][c]!==-1){
+                let cnt=0;
+                for(let dr=-1;dr<=1;dr++)
+                    for(let dc=-1;dc<=1;dc++){
+                        let nr=r+dr, nc=c+dc;
+                        if(nr>=0 && nr<ROWS && nc>=0 && nc<COLS && grid[nr][nc]===-1) cnt++;
+                    }
+                grid[r][c]=cnt;
+            }
+}
+
+function reveal(r,c){
+    if(r<0||r>=ROWS||c<0||c>=COLS) return;
+    if(revealed[r][c] || flagged[r][c]) return;
+    revealed[r][c]=true;
+    if(grid[r][c]===-1){
+        gameOver=true;
+        clearInterval(timerInterval);
+        draw();
+        alert("Game Over");
+        return;
+    }
+    if(grid[r][c]===0){
+        for(let dr=-1;dr<=1;dr++)
+            for(let dc=-1;dc<=1;dc++)
+                if(dr!==0 || dc!==0) reveal(r+dr,c+dc);
+    }
+    draw();
+    checkWin();
+}
+
+function checkWin(){
+    let revealedCount=0;
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(revealed[r][c]) revealedCount++;
+    if(revealedCount === ROWS*COLS-MINES){
+        win=true;
+        gameOver=true;
+        clearInterval(timerInterval);
+        alert("You win!");
+        draw();
+    }
+}
+
+canvas.addEventListener('click',(e)=>{
+    if(gameOver) return;
+    let rect=canvas.getBoundingClientRect();
+    let x=Math.floor((e.clientX-rect.left)/CELL);
+    let y=Math.floor((e.clientY-rect.top)/CELL);
+    if(x>=0 && x<COLS && y>=0 && y<ROWS){
+        if(firstClick){
+            generateMines(y,x);
+            firstClick=false;
+            startTime=Date.now();
+            timerInterval=setInterval(()=>{
+                if(!gameOver && !firstClick){
+                    let elapsed=Math.floor((Date.now()-startTime)/1000);
+                    document.getElementById('timer').innerText=elapsed;
+                }
+            },1000);
+        }
+        if(e.button===0 && !flagged[y][x]) reveal(y,x);
+    }
+});
+canvas.addEventListener('contextmenu',(e)=>{
+    e.preventDefault();
+    if(gameOver) return;
+    let rect=canvas.getBoundingClientRect();
+    let x=Math.floor((e.clientX-rect.left)/CELL);
+    let y=Math.floor((e.clientY-rect.top)/CELL);
+    if(x>=0 && x<COLS && y>=0 && y<ROWS && !revealed[y][x]){
+        flagged[y][x]=!flagged[y][x];
+        remainingMines = MINES - flagged.flat().filter(v=>v).length;
+        document.getElementById('mineCount').innerText=remainingMines;
+        draw();
+    }
+});
+
+function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    for(let r=0;r<ROWS;r++)
+        for(let c=0;c<COLS;c++){
+            let x=c*CELL, y=r*CELL;
+            if(revealed[r][c]){
+                if(grid[r][c]===-1){
+                    ctx.fillStyle='red';
+                    ctx.fillRect(x,y,CELL-1,CELL-1);
+                    ctx.fillStyle='black';
+                    ctx.fillText('💣',x+8,y+22);
+                }else if(grid[r][c]>0){
+                    ctx.fillStyle='lightgray';
+                    ctx.fillRect(x,y,CELL-1,CELL-1);
+                    ctx.fillStyle='black';
+                    ctx.fillText(grid[r][c],x+12,y+20);
+                }else{
+                    ctx.fillStyle='lightgray';
+                    ctx.fillRect(x,y,CELL-1,CELL-1);
+                }
+            }else{
+                ctx.fillStyle='gray';
+                ctx.fillRect(x,y,CELL-1,CELL-1);
+                if(flagged[r][c]){
+                    ctx.fillStyle='red';
+                    ctx.fillText('🚩',x+8,y+22);
+                }
+            }
+            ctx.strokeStyle='black';
+            ctx.strokeRect(x,y,CELL-1,CELL-1);
+        }
+}
+draw();
